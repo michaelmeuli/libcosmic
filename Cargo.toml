@@ -55,6 +55,7 @@ rfd = ["dep:rfd"]
 # Enables desktop files helpers
 desktop = [
     "process",
+    "dep:cosmic-settings-config",
     "dep:freedesktop-desktop-entry",
     "dep:mime",
     "dep:shlex",
@@ -121,7 +122,7 @@ auto_enums = "0.8.7"
 cctk = { git = "https://github.com/pop-os/cosmic-protocols", package = "cosmic-client-toolkit", rev = "160b086", optional = true }
 jiff = "0.2"
 cosmic-config = { path = "cosmic-config" }
-cosmic-settings-config = { git = "https://github.com/pop-os/cosmic-settings-daemon", optional = true }
+cosmic-settings-config = { git = "https://github.com/pop-os/cosmic-settings-daemon", rev = "68331387", optional = true }
 # Internationalization
 i18n-embed = { version = "0.16.0", features = [
     "fluent-system",
