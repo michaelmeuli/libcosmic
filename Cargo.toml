@@ -55,7 +55,6 @@ rfd = ["dep:rfd"]
 # Enables desktop files helpers
 desktop = [
     "process",
-    "dep:cosmic-settings-config",
     "dep:freedesktop-desktop-entry",
     "dep:mime",
     "dep:shlex",
