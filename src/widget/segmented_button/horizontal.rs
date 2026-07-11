@@ -21,7 +21,7 @@ pub struct Horizontal;
 /// Horizontal implementation of the [`SegmentedButton`].
 ///
 /// For details on the model, see the [`segmented_button`](super) module for more details.
-pub fn horizontal<SelectionMode: Default, Message>(
+pub fn horizontal<SelectionMode: Default, Message: Clone + 'static>(
     model: &Model<SelectionMode>,
 ) -> SegmentedButton<'_, Horizontal, SelectionMode, Message>
 where
@@ -30,7 +30,7 @@ where
     SegmentedButton::new(model)
 }
 
-impl<SelectionMode, Message> SegmentedVariant
+impl<SelectionMode, Message: Clone + 'static> SegmentedVariant
     for SegmentedButton<'_, Horizontal, SelectionMode, Message>
 where
     Model<SelectionMode>: Selectable,
@@ -211,6 +211,18 @@ where
             state.buttons_offset = 0;
         } else if reduce_button_offset {
             state.buttons_offset = num - state.buttons_visible;
+        }
+
+        // Resize paragraph bounds so that text ellipsis can take effect.
+        if !matches!(self.width, Length::Shrink) || state.collapsed {
+            let num = state.buttons_visible.max(1) as f32;
+            let spacing = f32::from(self.spacing);
+            let mut width_offset = 0.0;
+            if state.collapsed {
+                width_offset = f32::from(self.button_height) * 2.0;
+            }
+            let button_width = ((num).mul_add(-spacing, size.width - width_offset) + spacing) / num;
+            self.resize_paragraphs(state, button_width);
         }
 
         size

@@ -5,14 +5,10 @@
 
 use iced::widget;
 use iced_core::event::{self, Event};
-use iced_core::layout;
-use iced_core::mouse;
-use iced_core::overlay;
-use iced_core::renderer;
-use iced_core::touch;
 use iced_core::widget::{Operation, Tree};
 use iced_core::{
-    Clipboard, Element, Layout, Length, Point, Rectangle, Shell, Size, Vector, Widget,
+    Clipboard, Element, Layout, Length, Point, Rectangle, Shell, Size, Vector, Widget, layout,
+    mouse, overlay, renderer, touch,
 };
 
 pub use iced_widget::container::{Catalog, Style};
@@ -138,6 +134,10 @@ where
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
+        // Skip operating on background content, prevents Tab from escaping
+        if self.modal && self.popup.is_some() {
+            return;
+        }
         self.content
             .as_widget_mut()
             .operate(content_tree_mut(tree), layout, renderer, operation);
@@ -172,11 +172,17 @@ where
             }
         }
 
+        // Hide cursor from background content when modal popup is active
+        let cursor = if self.modal && self.popup.is_some() {
+            mouse::Cursor::Unavailable
+        } else {
+            cursor_position
+        };
         self.content.as_widget_mut().update(
             &mut tree.children[0],
             event,
             layout,
-            cursor_position,
+            cursor,
             renderer,
             clipboard,
             shell,
@@ -214,13 +220,19 @@ where
         cursor_position: mouse::Cursor,
         viewport: &Rectangle,
     ) {
+        // Hide cursor from background content when a modal popup is active
+        let cursor = if self.modal && self.popup.is_some() {
+            mouse::Cursor::Unavailable
+        } else {
+            cursor_position
+        };
         self.content.as_widget().draw(
             content_tree(tree),
             renderer,
             theme,
             renderer_style,
             layout,
-            cursor_position,
+            cursor,
             viewport,
         );
     }
@@ -390,6 +402,26 @@ where
             && matches!(event, Event::Mouse(_) | Event::Touch(_))
             && !cursor_position.is_over(layout.bounds())
         {
+            // Swallow new presses outside the popup, but still forward other
+            // events so an interaction started inside it (such as a selection
+            // drag) receives its release once the cursor leaves the bounds.
+            let is_press = matches!(
+                event,
+                Event::Mouse(mouse::Event::ButtonPressed(_))
+                    | Event::Touch(touch::Event::FingerPressed { .. })
+            );
+            if !is_press {
+                self.content.as_widget_mut().update(
+                    self.tree,
+                    event,
+                    layout,
+                    cursor_position,
+                    renderer,
+                    clipboard,
+                    shell,
+                    &layout.bounds(),
+                );
+            }
             shell.capture_event();
             return;
         }

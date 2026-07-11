@@ -1,41 +1,37 @@
 // From iced_aw, license MIT
 
 //! A widget that handles menu trees
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
+use std::sync::Arc;
 
-use super::{
-    menu_inner::{
-        CloseCondition, Direction, ItemHeight, ItemWidth, Menu, MenuState, PathHighlight,
-    },
-    menu_tree::MenuTree,
+use super::menu_inner::{
+    CloseCondition, Direction, ItemHeight, ItemWidth, Menu, MenuState, PathHighlight,
 };
+use super::menu_tree::MenuTree;
+use crate::Renderer;
 #[cfg(all(
     feature = "multi-window",
     feature = "wayland",
+    target_os = "linux",
     feature = "winit",
     feature = "surface-message"
 ))]
 use crate::app::cosmic::{WINDOWING_SYSTEM, WindowingSystem};
-use crate::{
-    Renderer,
-    style::menu_bar::StyleSheet,
-    widget::{
-        RcWrapper,
-        dropdown::menu::{self, State},
-        menu::menu_inner::init_root_menu,
-    },
-};
+use crate::style::menu_bar::StyleSheet;
+use crate::widget::RcWrapper;
+use crate::widget::dropdown::menu::{self, State};
+use crate::widget::menu::menu_inner::init_root_menu;
 
-use iced::{Point, Shadow, Vector, event::Status, window};
+use iced::event::Status;
+use iced::{Point, Shadow, Vector, window};
 use iced_core::Border;
+use iced_widget::core::layout::{Limits, Node};
+use iced_widget::core::mouse::{self, Cursor};
+use iced_widget::core::renderer::{self, Renderer as IcedRenderer};
+use iced_widget::core::widget::{Tree, tree};
 use iced_widget::core::{
     Alignment, Clipboard, Element, Layout, Length, Padding, Rectangle, Shell, Widget, event,
-    layout::{Limits, Node},
-    mouse::{self, Cursor},
-    overlay,
-    renderer::{self, Renderer as IcedRenderer},
-    touch,
-    widget::{Tree, tree},
+    overlay, touch,
 };
 
 /// A `MenuBar` collects `MenuTree`s and handles all the layout, event processing, and drawing.
@@ -195,7 +191,12 @@ pub struct MenuBar<Message> {
     menu_roots: Vec<MenuTree<Message>>,
     style: <crate::Theme as StyleSheet>::Style,
     window_id: window::Id,
-    #[cfg(all(feature = "multi-window", feature = "wayland", feature = "winit"))]
+    #[cfg(all(
+        feature = "multi-window",
+        feature = "wayland",
+        feature = "winit",
+        target_os = "linux"
+    ))]
     positioner: iced_runtime::platform_specific::wayland::popup::SctkPositioner,
     pub(crate) on_surface_action:
         Option<Arc<dyn Fn(crate::surface::Action) -> Message + Send + Sync + 'static>>,
@@ -229,8 +230,13 @@ where
             path_highlight: Some(PathHighlight::MenuActive),
             menu_roots,
             style: <crate::Theme as StyleSheet>::Style::default(),
-            window_id: window::Id::NONE,
-            #[cfg(all(feature = "multi-window", feature = "wayland", feature = "winit"))]
+            window_id: window::Id::RESERVED,
+            #[cfg(all(
+                feature = "multi-window",
+                feature = "wayland",
+                feature = "winit",
+                target_os = "linux"
+            ))]
             positioner: iced_runtime::platform_specific::wayland::popup::SctkPositioner::default(),
             on_surface_action: None,
         }
@@ -324,7 +330,12 @@ where
         self
     }
 
-    #[cfg(all(feature = "multi-window", feature = "wayland", feature = "winit"))]
+    #[cfg(all(
+        feature = "multi-window",
+        feature = "wayland",
+        feature = "winit",
+        target_os = "linux"
+    ))]
     pub fn with_positioner(
         mut self,
         positioner: iced_runtime::platform_specific::wayland::popup::SctkPositioner,
@@ -359,6 +370,7 @@ where
     #[cfg(all(
         feature = "multi-window",
         feature = "wayland",
+        target_os = "linux",
         feature = "winit",
         feature = "surface-message"
     ))]
@@ -373,7 +385,9 @@ where
         my_state: &mut MenuBarState,
     ) {
         if self.window_id != window::Id::NONE && self.on_surface_action.is_some() {
-            use crate::surface::action::destroy_popup;
+            use crate::surface::action::{LiveSettings, destroy_popup};
+            use crate::theme::THEME;
+            use iced_runtime::platform_specific::wayland::CornerRadius;
             use iced_runtime::platform_specific::wayland::popup::{
                 SctkPopupSettings, SctkPositioner,
             };
@@ -488,7 +502,22 @@ where
                 ..Default::default()
             };
             let parent = self.window_id;
+
+            let t = THEME.lock().unwrap();
+            let styling = t.appearance(&crate::theme::menu_bar::MenuBarStyle::Default, false);
+            drop(t);
+            let rad = styling.menu_border_radius;
+
             shell.publish((surface_action)(crate::surface::action::simple_popup(
+                move || LiveSettings {
+                    corners: Some(CornerRadius {
+                        top_left: rad[0] as u32,
+                        top_right: rad[1] as u32,
+                        bottom_left: rad[2] as u32,
+                        bottom_right: rad[3] as u32,
+                    }),
+                    ..Default::default()
+                },
                 move || SctkPopupSettings {
                     parent,
                     id,
@@ -573,7 +602,8 @@ where
         viewport: &Rectangle,
     ) {
         use event::Event::{Mouse, Touch};
-        use mouse::{Button::Left, Event::ButtonReleased};
+        use mouse::Button::Left;
+        use mouse::Event::ButtonReleased;
         use touch::Event::{FingerLifted, FingerLost};
 
         process_root_events(
@@ -629,6 +659,7 @@ where
                         state.open = false;
                         #[cfg(all(
                             feature = "wayland",
+                            target_os = "linux",
                             feature = "winit",
                             feature = "surface-message"
                         ))]
@@ -652,6 +683,7 @@ where
                 #[cfg(all(
                     feature = "multi-window",
                     feature = "wayland",
+                    target_os = "linux",
                     feature = "winit",
                     feature = "surface-message"
                 ))]
@@ -666,6 +698,7 @@ where
                 #[cfg(all(
                     feature = "multi-window",
                     feature = "wayland",
+                    target_os = "linux",
                     feature = "winit",
                     feature = "surface-message"
                 ))]
@@ -698,7 +731,21 @@ where
 
             // draw path highlight
             if self.path_highlight.is_some() {
-                let styling = theme.appearance(&self.style);
+                let mut is_overlay = true;
+                #[cfg(all(
+                    feature = "multi-window",
+                    feature = "wayland",
+                    target_os = "linux",
+                    feature = "winit",
+                    feature = "surface-message"
+                ))]
+                if matches!(WINDOWING_SYSTEM.get(), Some(WindowingSystem::Wayland))
+                    && self.on_surface_action.is_some()
+                    && self.window_id != window::Id::NONE
+                {
+                    is_overlay = true;
+                };
+                let styling = theme.appearance(&self.style, is_overlay);
                 if let Some(active) = state.active_root.first() {
                     let active_bounds = layout
                         .children()
@@ -748,6 +795,7 @@ where
         #[cfg(all(
             feature = "multi-window",
             feature = "wayland",
+            target_os = "linux",
             feature = "winit",
             feature = "surface-message"
         ))]

@@ -9,11 +9,11 @@ use std::rc::Rc;
 use iced::advanced::widget::text::Style as TextStyle;
 use iced_widget::core::{Element, renderer};
 
-use crate::iced_core::{Alignment, Length};
 use crate::widget::menu::action::MenuAction;
 use crate::widget::menu::key_bind::KeyBind;
 use crate::widget::{Button, RcElementWrapper, icon};
 use crate::{theme, widget};
+use iced_core::{Alignment, Length};
 
 /// Nested menu is essentially a tree of items, a menu is a collection of items
 /// a menu itself can also be an item of another menu.
@@ -230,10 +230,11 @@ pub fn menu_items<
     }
 
     fn key_style(theme: &crate::Theme) -> TextStyle {
-        let mut color = theme.cosmic().background.component.on;
+        let mut color = theme.cosmic().background(theme.transparent).component.on;
         color.alpha *= 0.75;
         TextStyle {
             color: Some(color.into()),
+            ..Default::default()
         }
     }
     let key_class = theme::Text::Custom(key_style);
@@ -252,9 +253,18 @@ pub fn menu_items<
                     let l: Cow<'static, str> = label.into();
                     let key = find_key(&action, key_binds);
                     let mut items = vec![
-                        widget::text(l).into(),
+                        widget::text(l)
+                            .ellipsize(iced_core::text::Ellipsize::Middle(
+                                iced_core::text::EllipsizeHeightLimit::Lines(1),
+                            ))
+                            .into(),
                         widget::space::horizontal().into(),
-                        widget::text(key).class(key_class).into(),
+                        widget::text(key)
+                            .class(key_class)
+                            .ellipsize(iced_core::text::Ellipsize::Middle(
+                                iced_core::text::EllipsizeHeightLimit::Lines(1),
+                            ))
+                            .into(),
                     ];
 
                     if let Some(icon) = icon {
@@ -275,9 +285,18 @@ pub fn menu_items<
                     let key = find_key(&action, key_binds);
 
                     let mut items = vec![
-                        widget::text(l).into(),
+                        widget::text(l)
+                            .ellipsize(iced_core::text::Ellipsize::Middle(
+                                iced_core::text::EllipsizeHeightLimit::Lines(1),
+                            ))
+                            .into(),
                         widget::space::horizontal().into(),
-                        widget::text(key).class(key_class).into(),
+                        widget::text(key)
+                            .ellipsize(iced_core::text::Ellipsize::Middle(
+                                iced_core::text::EllipsizeHeightLimit::Lines(1),
+                            ))
+                            .class(key_class)
+                            .into(),
                     ];
 
                     if let Some(icon) = icon {
@@ -312,9 +331,19 @@ pub fn menu_items<
                                 .into()
                         },
                         widget::space::horizontal().width(spacing.space_xxs).into(),
-                        widget::text(label).align_x(iced::Alignment::Start).into(),
+                        widget::text(label)
+                            .ellipsize(iced_core::text::Ellipsize::Middle(
+                                iced_core::text::EllipsizeHeightLimit::Lines(1),
+                            ))
+                            .align_x(iced::Alignment::Start)
+                            .into(),
                         widget::space::horizontal().into(),
-                        widget::text(key).class(key_class).into(),
+                        widget::text(key)
+                            .class(key_class)
+                            .ellipsize(iced_core::text::Ellipsize::Middle(
+                                iced_core::text::EllipsizeHeightLimit::Lines(1),
+                            ))
+                            .into(),
                     ];
 
                     if let Some(icon) = icon {
@@ -335,7 +364,11 @@ pub fn menu_items<
                     trees.push(MenuTree::<Message>::with_children(
                         RcElementWrapper::new(crate::Element::from(
                             menu_button::<'static, _>(vec![
-                                widget::text(l.clone()).into(),
+                                widget::text(l.clone())
+                                    .ellipsize(iced_core::text::Ellipsize::Middle(
+                                        iced_core::text::EllipsizeHeightLimit::Lines(1),
+                                    ))
+                                    .into(),
                                 widget::space::horizontal().into(),
                                 widget::icon::from_name("pan-end-symbolic")
                                     .size(16)
@@ -367,4 +400,20 @@ pub fn menu_items<
             trees
         })
         .collect()
+}
+
+/// Create a menu tree from a widget and a vector of sub trees
+pub fn nav_context<
+    A: MenuAction<Message = Message>,
+    L: Into<Cow<'static, str>> + From<&'static str> + 'static,
+    Message: 'static + std::clone::Clone,
+>(
+    key_binds: &HashMap<KeyBind, A>,
+    children: Vec<Vec<MenuItem<A, L>>>,
+) -> Vec<MenuTree<Message>> {
+    let menus = children
+        .into_iter()
+        .map(|m| MenuItem::<A, L>::Folder(L::from(""), m));
+    let root = vec![MenuItem::<A, L>::Folder(L::from(""), menus.collect())];
+    menu_items(key_binds, root)
 }

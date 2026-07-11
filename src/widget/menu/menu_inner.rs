@@ -1,26 +1,29 @@
 // From iced_aw, license MIT
 
 //! Menu tree overlay
-use std::{borrow::Cow, sync::Arc};
+use std::borrow::Cow;
+use std::sync::Arc;
 
-use super::{menu_bar::MenuBarState, menu_tree::MenuTree};
+use super::menu_bar::MenuBarState;
+use super::menu_tree::MenuTree;
 #[cfg(all(
     feature = "multi-window",
     feature = "wayland",
+    target_os = "linux",
     feature = "winit",
     feature = "surface-message"
 ))]
 use crate::app::cosmic::{WINDOWING_SYSTEM, WindowingSystem};
 use crate::style::menu_bar::StyleSheet;
 
-use iced::window;
+use iced::{Alignment, window};
 use iced_core::{Border, Renderer as IcedRenderer, Shadow, Widget};
+use iced_widget::core::layout::{Limits, Node};
+use iced_widget::core::mouse::{self, Cursor};
+use iced_widget::core::widget::Tree;
 use iced_widget::core::{
-    Clipboard, Layout, Length, Padding, Point, Rectangle, Shell, Size, Vector, event,
-    layout::{Limits, Node},
-    mouse::{self, Cursor},
-    overlay, renderer, touch,
-    widget::Tree,
+    Clipboard, Layout, Length, Padding, Point, Rectangle, Shell, Size, Vector, event, overlay,
+    renderer, touch,
 };
 
 /// The condition of when to close a menu
@@ -522,6 +525,7 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                                 );
                                 let node_size = children_node.size();
                                 intrinsic_size.height += node_size.height;
+
                                 intrinsic_size.width = intrinsic_size.width.max(node_size.width);
 
                                 nodes.push(children_node);
@@ -558,14 +562,10 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
     ) -> Option<(usize, MenuState)> {
-        use event::{
-            Event::{Mouse, Touch},
-            Status::{Captured, Ignored},
-        };
-        use mouse::{
-            Button::Left,
-            Event::{ButtonPressed, ButtonReleased, CursorMoved, WheelScrolled},
-        };
+        use event::Event::{Mouse, Touch};
+        use event::Status::{Captured, Ignored};
+        use mouse::Button::Left;
+        use mouse::Event::{ButtonPressed, ButtonReleased, CursorMoved, WheelScrolled};
         use touch::Event::{FingerLifted, FingerMoved, FingerPressed};
 
         if !self
@@ -680,6 +680,7 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                             #[cfg(all(
                                 feature = "multi-window",
                                 feature = "wayland",
+                                target_os = "linux",
                                 feature = "winit",
                                 feature = "surface-message"
                             ))]
@@ -742,7 +743,7 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                 Rectangle::new(Point::ORIGIN, Size::INFINITE)
             };
 
-            let styling = theme.appearance(&self.style);
+            let styling = theme.appearance(&self.style, self.is_overlay);
             let roots = active_root.iter().skip(1).fold(
                 &self.menu_roots[active_root[0]].children,
                 |mt, next_active_root| &mt[*next_active_root].children,
@@ -765,7 +766,13 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                             PathHighlight::OmitActive => {
                                 !indices.is_empty() && i < indices.len() - 1
                             }
-                            PathHighlight::MenuActive => self.depth == state.active_root.len() - 1,
+                            PathHighlight::MenuActive => {
+                                !indices.is_empty()
+                                    && i < indices.len()
+                                    && menu_roots.len() > indices[i]
+                                    && (i < indices.len() - 1
+                                        || !menu_roots[indices[i]].children.is_empty())
+                            }
                         });
 
                         // react only to the last menu
@@ -811,13 +818,27 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                                     .children()
                                     .nth(active.saturating_sub(start_index))
                             {
+                                let i = active.saturating_sub(start_index);
+                                let mut rad = styling.menu_border_radius;
+                                let rad_0 = theme.cosmic().radius_0();
+                                if start_index != end_index {
+                                    if 0 == i {
+                                        rad[0] = rad_0[0];
+                                        rad[1] = rad_0[1];
+                                    } else if i == end_index - start_index {
+                                        rad[2] = rad_0[2];
+                                        rad[3] = rad_0[3];
+                                    } else {
+                                        rad = rad_0;
+                                    }
+                                }
                                 let path_quad = renderer::Quad {
                                     bounds: active_layout
                                         .bounds()
                                         .intersection(&viewport)
                                         .unwrap_or_default(),
                                     border: Border {
-                                        radius: styling.menu_border_radius.into(),
+                                        radius: rad.into(),
                                         ..Default::default()
                                     },
                                     shadow: Shadow::default(),
@@ -830,12 +851,25 @@ impl<'b, Message: Clone + 'static> Menu<'b, Message> {
                                 // draw item
                                 menu_roots[start_index..=end_index]
                                     .iter()
+                                    .enumerate()
                                     .zip(children_layout.children())
-                                    .for_each(|(mt, clo)| {
+                                    .for_each(|((i, mt), clo)| {
+                                        let t = theme.with_list_item_position(
+                                            if start_index == end_index {
+                                                Some((Alignment::Center, i))
+                                            } else if 0 == i {
+                                                Some((Alignment::Start, i))
+                                            } else if i == end_index - start_index {
+                                                Some((Alignment::End, i))
+                                            } else {
+                                                None
+                                            },
+                                        );
+
                                         mt.item.draw(
                                             &state.tree.children[active_root[0]].children[mt.index],
                                             r,
-                                            theme,
+                                            &t,
                                             style,
                                             clo,
                                             view_cursor,
@@ -960,14 +994,19 @@ impl<Message: std::clone::Clone + 'static> Widget<Message, crate::Theme, crate::
             feature = "multi-window",
             feature = "wayland",
             feature = "winit",
-            feature = "surface-message"
+            feature = "surface-message",
+            target_os = "linux"
         ))]
         if matches!(WINDOWING_SYSTEM.get(), Some(WindowingSystem::Wayland))
             && let Some((new_root, new_ms)) = new_root
         {
+            use iced_runtime::platform_specific::wayland::CornerRadius;
             use iced_runtime::platform_specific::wayland::popup::{
                 SctkPopupSettings, SctkPositioner,
             };
+
+            use crate::surface::action::LiveSettings;
+            use crate::theme::THEME;
             let overlay_offset = Point::ORIGIN - viewport.position();
 
             let overlay_cursor = cursor.position().unwrap_or_default() - overlay_offset;
@@ -1081,8 +1120,23 @@ impl<Message: std::clone::Clone + 'static> Widget<Message, crate::Theme, crate::
             // disable slide_x if it is set in the default
             positioner.constraint_adjustment &= !(1 << 0);
             let parent = self.window_id;
+
+            let t = THEME.lock().unwrap();
+            let styling = t.appearance(&crate::theme::menu_bar::MenuBarStyle::Default, false);
+            drop(t);
+            let rad = styling.menu_border_radius;
+
             shell.publish((self.on_surface_action.as_ref().unwrap())(
                 crate::surface::action::simple_popup(
+                    move || LiveSettings {
+                        corners: Some(CornerRadius {
+                            top_left: rad[0] as u32,
+                            top_right: rad[1] as u32,
+                            bottom_left: rad[2] as u32,
+                            bottom_right: rad[3] as u32,
+                        }),
+                        ..Default::default()
+                    },
                     move || SctkPopupSettings {
                         parent,
                         id: popup_id,
@@ -1220,6 +1274,7 @@ pub(crate) fn init_root_menu<Message: Clone>(
 #[cfg(all(
     feature = "multi-window",
     feature = "wayland",
+    target_os = "linux",
     feature = "winit",
     feature = "surface-message"
 ))]
@@ -1517,7 +1572,7 @@ where
             .as_ref()
             .is_some_and(|i| *i != new_index && !active_menu[*i].children.is_empty());
 
-        #[cfg(all(feature = "multi-window", feature = "wayland", feature = "winit", feature = "surface-message"))]
+        #[cfg(all(feature = "multi-window", feature = "wayland",target_os = "linux", feature = "winit", feature = "surface-message"))]
         if matches!(WINDOWING_SYSTEM.get(), Some(WindowingSystem::Wayland)) && remove {
             if let Some(id) = state.popup_id.remove(&menu.window_id) {
                 state.active_root.truncate(menu.depth + 1);

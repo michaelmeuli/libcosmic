@@ -1,12 +1,11 @@
 //! Autosize Container, which will resize the window to its contents.
 
 use iced_core::event::{self, Event};
-use iced_core::layout;
-use iced_core::mouse;
-use iced_core::overlay;
-use iced_core::renderer;
 use iced_core::widget::{Id, Operation, Tree};
-use iced_core::{Clipboard, Element, Layout, Length, Rectangle, Shell, Vector, Widget};
+use iced_core::{
+    Clipboard, Element, Layout, Length, Rectangle, Shell, Vector, Widget, layout, mouse, overlay,
+    renderer,
+};
 pub use iced_widget::container::{Catalog, Style};
 
 pub fn autosize<'a, Message: 'static, Theme, E>(
@@ -170,7 +169,7 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        #[cfg(feature = "wayland")]
+        #[cfg(all(feature = "wayland", target_os = "linux"))]
         if matches!(
             event,
             Event::PlatformSpecific(event::PlatformSpecific::Wayland(

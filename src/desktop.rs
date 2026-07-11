@@ -789,7 +789,7 @@ pub async fn spawn_desktop_exec<S, I, K, V>(
             })
             .unwrap_or_else(|| String::from("cosmic-term"));
 
-        term_exec = format!("{term} -- {}", exec.as_ref());
+        term_exec = format!("{term} -e {}", exec.as_ref());
         &term_exec
     } else {
         exec.as_ref()
@@ -872,7 +872,8 @@ trait SystemdManger {
 #[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
-    use std::{env, fs, path::Path, path::PathBuf};
+    use std::path::{Path, PathBuf};
+    use std::{env, fs};
     use tempfile::tempdir;
 
     struct EnvVarGuard {

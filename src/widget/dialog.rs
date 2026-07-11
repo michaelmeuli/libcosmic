@@ -1,8 +1,5 @@
-use crate::{
-    Element,
-    iced::{Length, Pixels},
-    style, theme, widget,
-};
+use crate::iced::{Length, Pixels};
+use crate::{Element, style, theme, widget};
 use std::borrow::Cow;
 
 pub fn dialog<'a, Message>() -> Dialog<'a, Message> {
@@ -21,6 +18,7 @@ pub struct Dialog<'a, Message> {
     height: Option<Length>,
     max_width: Option<Pixels>,
     max_height: Option<Pixels>,
+    is_overlay: bool,
 }
 
 impl<Message> Default for Dialog<'_, Message> {
@@ -43,6 +41,7 @@ impl<'a, Message> Dialog<'a, Message> {
             height: None,
             max_width: None,
             max_height: None,
+            is_overlay: true,
         }
     }
 
@@ -98,6 +97,11 @@ impl<'a, Message> Dialog<'a, Message> {
 
     pub fn max_width(mut self, max_width: impl Into<Pixels>) -> Self {
         self.max_width = Some(max_width.into());
+        self
+    }
+
+    pub fn is_overlay(mut self, is_overlay: bool) -> Self {
+        self.is_overlay = is_overlay;
         self
     }
 }
@@ -160,7 +164,7 @@ impl<'a, Message: Clone + 'static> From<Dialog<'a, Message>> for Element<'a, Mes
         let mut container = widget::container(
             widget::column::with_children([content_row.into(), button_row.into()]).spacing(space_l),
         )
-        .class(style::Container::Dialog)
+        .class(style::Container::Dialog(dialog.is_overlay))
         .padding(space_m)
         .width(dialog.width.unwrap_or(Length::Fixed(570.0)));
 

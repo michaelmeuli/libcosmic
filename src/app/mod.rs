@@ -22,11 +22,11 @@ use crate::prelude::*;
 use crate::theme::THEME;
 use crate::widget::{container, id_container, menu, nav_bar, popover, space};
 use apply::Apply;
-use iced::{Length, Subscription};
-use iced::{theme, window};
+use iced::{Color, Length, Subscription, theme, window};
 pub use settings::Settings;
 use std::borrow::Cow;
-use std::{cell::RefCell, rc::Rc};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[cold]
 pub(crate) fn iced_settings<App: Application>(
@@ -128,6 +128,9 @@ impl<A: crate::app::Application> BootFn<cosmic::Cosmic<A>, crate::Action<A::Mess
 ///
 /// Returns error on application failure.
 pub fn run<App: Application>(settings: Settings, flags: App::Flags) -> iced::Result {
+    #[cfg(feature = "desktop")]
+    image_extras::register();
+
     #[cfg(all(target_env = "gnu", not(target_os = "windows")))]
     if let Some(threshold) = settings.default_mmap_threshold {
         crate::malloc::limit_mmap_threshold(threshold);
@@ -194,6 +197,9 @@ where
     App::Flags: CosmicFlags,
     App::Message: Clone + std::fmt::Debug + Send + 'static,
 {
+    #[cfg(feature = "desktop")]
+    image_extras::register();
+
     use std::collections::HashMap;
 
     let activation_token = std::env::var("XDG_ACTIVATION_TOKEN").ok();
@@ -383,10 +389,23 @@ where
         let mut nav =
             crate::widget::nav_bar(nav_model, |id| crate::Action::Cosmic(Action::NavBar(id)))
                 .on_context(|id| crate::Action::Cosmic(Action::NavBarContext(id)))
-                .context_menu(self.nav_context_menu(self.core().nav_bar_context()))
-                .into_container()
-                .width(iced::Length::Shrink)
-                .height(iced::Length::Fill);
+                .context_menu(self.nav_context_menu());
+        #[cfg(all(
+            feature = "multi-window",
+            feature = "wayland",
+            target_os = "linux",
+            feature = "winit",
+            feature = "surface-message"
+        ))]
+        {
+            nav = nav
+                .window_id_maybe(self.core().main_window_id())
+                .on_surface_action(|m| crate::Action::Cosmic(crate::app::Action::Surface(m)))
+        }
+        let mut nav = nav
+            .into_container()
+            .width(iced::Length::Shrink)
+            .height(iced::Length::Fill);
 
         if !self.core().is_condensed() {
             nav = nav.max_width(280);
@@ -396,10 +415,7 @@ where
     }
 
     /// Shows a context menu for the active nav bar item.
-    fn nav_context_menu(
-        &self,
-        id: nav_bar::Id,
-    ) -> Option<Vec<menu::Tree<crate::Action<Self::Message>>>> {
+    fn nav_context_menu(&self) -> Option<Vec<menu::Tree<crate::Action<Self::Message>>>> {
         None
     }
 
@@ -612,27 +628,28 @@ impl<App: Application> ApplicationExt for App {
         let focused = core
             .focus_chain()
             .iter()
-            .any(|i| Some(*i) == self.core().main_window_id());
+            .any(|i| Some(*i) == core.main_window_id());
 
-        let border_padding = if maximized { 8 } else { 7 };
+        let border_padding = core
+            .window
+            .border_padding
+            .unwrap_or(if maximized { 8 } else { 7 });
 
-        let main_content_padding = if !content_container {
-            [0, 0, 0, 0]
-        } else {
+        let main_content_padding = if content_container {
             let right_padding = if show_context { 0 } else { border_padding };
             let left_padding = if nav_bar_active { 0 } else { border_padding };
 
             [0, right_padding, 0, left_padding]
+        } else {
+            [0, 0, 0, 0]
         };
 
         let content_row = crate::widget::row::with_children({
             let mut widgets = Vec::with_capacity(3);
 
             // Insert nav bar onto the left side of the window.
-            let has_nav = if let Some(nav) = self
-                .nav_bar()
-                .map(|nav| id_container(nav, iced_core::id::Id::new("COSMIC_nav_bar")))
-            {
+            let has_nav = if let Some(nav) = self.nav_bar() {
+                let nav = id_container(nav, iced_core::id::Id::new("COSMIC_nav_bar"));
                 widgets.push(
                     container(nav)
                         .padding([
@@ -742,7 +759,6 @@ impl<App: Application> ApplicationExt for App {
             }));
         let content: Element<_> = if content_container {
             content_col
-                .apply(container)
                 .width(iced::Length::Fill)
                 .height(iced::Length::Fill)
                 .apply(|w| id_container(w, iced_core::id::Id::new("COSMIC_content_container")))
@@ -768,12 +784,10 @@ impl<App: Application> ApplicationExt for App {
                         .focused(focused)
                         .maximized(maximized)
                         .sharp_corners(sharp_corners)
-                        .transparent(content_container)
                         .title(&core.window.header_title)
                         .on_drag(crate::Action::Cosmic(Action::Drag))
                         .on_right_click(crate::Action::Cosmic(Action::ShowWindowMenu))
-                        .on_double_click(crate::Action::Cosmic(Action::Maximize))
-                        .is_condensed(is_condensed);
+                        .on_double_click(crate::Action::Cosmic(Action::Maximize));
 
                     if self.nav_model().is_some() {
                         let toggle = crate::widget::nav_bar_toggle()
@@ -822,7 +836,7 @@ impl<App: Application> ApplicationExt for App {
                                 let cosmic = theme.cosmic();
                                 container::Style {
                                     background: Some(iced::Background::Color(
-                                        cosmic.background.base.into(),
+                                        cosmic.background(theme.transparent).base.into(),
                                     )),
                                     border: iced::Border {
                                         radius: [
@@ -851,7 +865,7 @@ impl<App: Application> ApplicationExt for App {
                 container::Style {
                     background: if content_container {
                         Some(iced::Background::Color(
-                            theme.cosmic().background.base.into(),
+                            theme.cosmic().background(theme.transparent).base.into(),
                         ))
                     } else {
                         None

@@ -1,12 +1,11 @@
 use crate::Theme;
 use configparser::ini::Ini;
 use cosmic_config::CosmicConfigEntry;
-use palette::{Mix, Srgba, blend::Compose};
-use std::{
-    fs::{self, File},
-    io::{self, Write},
-    path::{Path, PathBuf},
-};
+use palette::blend::Compose;
+use palette::{Mix, Srgba};
+use std::fs::{self, File};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
 use super::{OutputError, qt_settings_ini_style};
 
@@ -14,10 +13,11 @@ impl Theme {
     /// Produces a color scheme ini file for Qt.
     ///
     /// Some high-level documentation for this file can be found at:
-    /// https://web.archive.org/web/20250402234329/https://docs.kde.org/stable5/en/plasma-workspace/kcontrol/colors/
+    /// - https://api.kde.org/kcolorscheme.html
+    /// - https://web.archive.org/web/20250402234329/https://docs.kde.org/stable5/en/plasma-workspace/kcontrol/colors/
     #[must_use]
     #[cold]
-    pub fn as_qt(&self) -> String {
+    pub fn as_kcolorscheme(&self) -> String {
         // Usually, disabled elements will have strongly reduced contrast and are often notably darker or lighter
         let disabled_color_effects = IniColorEffects {
             color: self.button.disabled,
@@ -41,7 +41,7 @@ impl Theme {
 
         let bg = self.background.base;
         // the background container
-        let view_colors = IniColors {
+        let window_colors = IniColors {
             background_alternate: bg.mix(self.accent.base, 0.05),
             background_normal: bg,
             decoration_focus: self.accent_text_color(),
@@ -56,16 +56,17 @@ impl Theme {
             foreground_visited: self.accent_text_color(),
         };
         // components inside the background container
-        let window_colors = IniColors {
+        let view_colors = IniColors {
             background_alternate: self.background.component.base.mix(self.accent.base, 0.05),
             background_normal: self.background.component.base,
-            ..view_colors
+            ..window_colors
         };
 
         // selected text and items
         let selection_colors = {
-            let selected = self.background.component.selected;
-            let selected_text = self.background.component.selected_text;
+            // selection colors are swapped to fix menu bar contrast
+            let selected = self.background.component.selected_text;
+            let selected_text = self.background.component.selected;
             IniColors {
                 background_alternate: selected.mix(bg, 0.5),
                 background_normal: selected,
@@ -92,8 +93,11 @@ impl Theme {
         let complementary_colors = {
             let dark = if self.is_dark {
                 self.clone()
+            } else if cfg!(test) {
+                // For reproducible results in tests, use the default dark theme
+                Theme::dark_default()
             } else {
-                Theme::light_config()
+                Theme::dark_config()
                     .ok()
                     .as_ref()
                     .and_then(|conf| Theme::get_entry(conf).ok())
@@ -116,10 +120,10 @@ impl Theme {
         };
 
         // headers in cosmic don't have a background
-        let header_colors = &view_colors;
-        let header_colors_inactive = &view_colors;
+        let header_colors = &window_colors;
+        let header_colors_inactive = &window_colors;
         // tool tips, "What's This" tips, and similar elements
-        let tooltip_colors = &window_colors;
+        let tooltip_colors = &view_colors;
 
         let general_color_scheme = if self.is_dark {
             "CosmicDark"
@@ -198,7 +202,7 @@ widgetStyle=qt6ct-style
             format_ini_colors(&tooltip_colors, bg),
             format_ini_colors(&view_colors, bg),
             format_ini_colors(&window_colors, bg),
-            format_ini_wm_colors(&view_colors, self.is_dark),
+            format_ini_wm_colors(&window_colors, self.is_dark),
         )
     }
 
@@ -212,14 +216,14 @@ widgetStyle=qt6ct-style
     /// Returns an `OutputError` if there is an error writing the colors file.
     #[cold]
     pub fn write_qt(&self) -> Result<(), OutputError> {
-        let colors = self.as_qt();
-        let file_path = Self::get_qt_colors_path(self.is_dark)?;
+        let kcolorscheme = self.as_kcolorscheme();
+        let file_path = Self::get_kcolorscheme_path(self.is_dark)?;
         let tmp_file_path = file_path.with_extension("colors.new");
 
         // Write to tmp_file_path first, then move it to file_path
         let mut tmp_file = File::create(&tmp_file_path).map_err(OutputError::Io)?;
         let res = tmp_file
-            .write_all(colors.as_bytes())
+            .write_all(kcolorscheme.as_bytes())
             .and_then(|_| tmp_file.flush())
             .and_then(|_| std::fs::rename(&tmp_file_path, file_path));
         if let Err(e) = res {
@@ -245,7 +249,7 @@ widgetStyle=qt6ct-style
         let kdeglobals_file = config_dir.join("kdeglobals");
         let mut kdeglobals_ini = Self::read_ini(&kdeglobals_file)?;
 
-        let src_file = Self::get_qt_colors_path(is_dark)?;
+        let src_file = Self::get_kcolorscheme_path(is_dark)?;
         let src_ini = Self::read_ini(&src_file)?;
 
         Self::backup_non_cosmic_kdeglobals(&kdeglobals_ini, &kdeglobals_file)
@@ -288,7 +292,7 @@ widgetStyle=qt6ct-style
         }
 
         let is_dark = false; // doesn't matter since we're only reading keys
-        let src_file = Self::get_qt_colors_path(is_dark)?;
+        let src_file = Self::get_kcolorscheme_path(is_dark)?;
         let src_ini = Self::read_ini(&src_file)?;
 
         for (section, key_value) in src_ini.get_map_ref() {
@@ -303,8 +307,8 @@ widgetStyle=qt6ct-style
         Ok(())
     }
 
-    /// Gets a path like `~/.config/color-schemes/CosmicDark.colors`
-    pub fn get_qt_colors_path(is_dark: bool) -> Result<PathBuf, OutputError> {
+    /// Gets a path like `~/.local/share/color-schemes/CosmicDark.colors`
+    fn get_kcolorscheme_path(is_dark: bool) -> Result<PathBuf, OutputError> {
         let Some(mut data_dir) = dirs::data_dir() else {
             return Err(OutputError::MissingDataDir);
         };
@@ -518,5 +522,46 @@ impl ColorEffect {
             Self::Fade => 1,
             Self::Tint => 2,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_opaque_color_to_rgb() {
+        let color = Srgba::new(30.0 / 255.0, 50.0 / 255.0, 70.0 / 255.0, 1.0);
+        let bg = Srgba::new(1.0, 1.0, 1.0, 1.0);
+        let result = to_rgb(color, bg);
+        assert_eq!(result, "30,50,70");
+    }
+
+    #[test]
+    fn test_transparent_color_to_rgb() {
+        let color = Srgba::new(0.0, 0.0, 0.0, 0.0);
+        let bg = Srgba::new(1.0, 1.0, 1.0, 1.0);
+        let result = to_rgb(color, bg);
+        assert_eq!(result, "255,255,255");
+    }
+
+    #[test]
+    fn test_translucent_color_to_rgb() {
+        let color = Srgba::new(0.0, 0.0, 0.0, 0.9);
+        let bg = Srgba::new(1.0, 1.0, 1.0, 1.0);
+        let result = to_rgb(color, bg);
+        assert_eq!(result, "26,26,26");
+    }
+
+    #[test]
+    fn test_light_default_kcolorscheme() {
+        let light_default_kcolorscheme = Theme::light_default().as_kcolorscheme();
+        insta::assert_snapshot!(light_default_kcolorscheme);
+    }
+
+    #[test]
+    fn test_dark_default_kcolorscheme() {
+        let dark_default_kcolorscheme = Theme::dark_default().as_kcolorscheme();
+        insta::assert_snapshot!(dark_default_kcolorscheme);
     }
 }
