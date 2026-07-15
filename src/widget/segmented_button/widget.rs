@@ -970,11 +970,12 @@ where
 
             let Some((mut bounds, i)) = self
                 .variant_bounds(state, layout.bounds())
-                .enumerate()
-                .find_map(|(i, item)| match item {
-                    ItemBounds::Button(e, bounds) if e == entity => Some((bounds, i)),
+                .filter_map(|item| match item {
+                    ItemBounds::Button(entity, bounds) => Some((bounds, entity)),
                     _ => None,
                 })
+                .enumerate()
+                .find_map(|(i, (bounds, e))| if e == entity { Some((bounds, i)) } else { None })
             else {
                 return;
             };
@@ -1689,13 +1690,6 @@ where
                             }
                         }
 
-                        #[cfg(all(
-                            feature = "multi-window",
-                            feature = "wayland",
-                            target_os = "linux",
-                            feature = "winit",
-                            feature = "surface-message"
-                        ))]
                         if let Some(on_activate) = self.on_activate.as_ref() {
                             if is_pressed(event) {
                                 state.pressed_item = Some(Item::Tab(key));
@@ -2536,11 +2530,12 @@ where
 
         let (mut bounds, i) = self
             .variant_bounds(state, layout.bounds())
-            .enumerate()
-            .find_map(|(i, item)| match item {
-                ItemBounds::Button(e, bounds) if e == entity => Some((bounds, i)),
+            .filter_map(|item| match item {
+                ItemBounds::Button(entity, bounds) => Some((bounds, entity)),
                 _ => None,
-            })?;
+            })
+            .enumerate()
+            .find_map(|(i, (bounds, e))| if e == entity { Some((bounds, i)) } else { None })?;
 
         assert!(
             self.context_menu
